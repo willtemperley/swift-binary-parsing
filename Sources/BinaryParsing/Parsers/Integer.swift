@@ -696,6 +696,74 @@ extension FixedWidthInteger where Self: BitwiseCopyable {
     }
     self = try Self(_throwing: T(truncatingIfNeeded: result))
   }
+  
+  /// Creates an integer by parsing a little-endian base 128 (LEB128) encoded value of this type's size
+  /// from the start of the given parser span.
+  ///
+  /// - Parameter input: The `ParserSpan` to parse from. If parsing succeeds,
+  ///   the start position of `input` is moved forward by `ceil(bitWidth / 7)` where bitWidth is
+  ///   the minimum number of bits required to encode this integer.
+  /// - Throws: A `ParsingError` if `input` overflows the max value of
+  ///   this integer type.
+  @inlinable
+  @_lifetime(&input)
+  public init(parsingLEB128 input: inout ParserSpan) throws(ParsingError) {
+    var result: Self = 0
+    var shift = 0
+    var byte: UInt8 = 0
+    
+    while true {
+      byte = try UInt8(parsing: &input)
+      let bits = Self(byte & 0x7F)
+      
+      // Check for overflow before shifting
+      if shift >= Self.bitWidth {
+        // Additional bytes must be zero (or sign extension for signed)
+        if Self.isSigned {
+          let expectedByte: UInt8 = (result < 0) ? 0xFF : 0x00
+          guard (byte & 0x7F) == (expectedByte & 0x7F) else {
+            throw ParsingError(
+              status: .invalidValue,
+              location: input.startPosition)
+          }
+        } else {
+          guard (byte & 0x7F) == 0 else {
+            throw ParsingError(
+              status: .invalidValue,
+              location: input.startPosition)
+          }
+        }
+      } else {
+        // Check if this would overflow our target type
+        let availableBits = Self.bitWidth - shift
+        if availableBits < 7 {
+          // Mask of bits that can safely fit
+          let allowedMask: Self = (1 << availableBits) - 1
+          let extraBits = bits & ~allowedMask
+          if extraBits != 0 {
+            let isValidSignExtension =
+            Self.isSigned && extraBits == (~allowedMask & 0x7F)
+            
+            if !isValidSignExtension {
+              throw ParsingError(
+                status: .invalidValue,
+                location: input.startPosition)
+            }
+          }
+        }
+        result |= bits << shift
+      }
+      shift += 7
+      if (byte & 0x80) == 0 { break }
+    }
+    if Self.isSigned {
+      // Sign-extend if needed
+      if shift < Self.bitWidth && (byte & 0x40) != 0 {
+        result |= (~0) << shift
+      }
+    }
+    self = result
+  }
 }
 
 extension RawRepresentable where RawValue: MultiByteInteger {

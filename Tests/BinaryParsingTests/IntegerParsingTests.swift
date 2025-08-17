@@ -171,6 +171,12 @@ struct IntegerParsingTests {
           }
         }
       }
+      
+      do {
+        let lebEncoded = [UInt8](encodingLEB128: number)
+        let parsed = try lebEncoded.withParserSpan { try T(parsingLEB128: &$0) }
+        #expect(parsed == number)
+      }
     }
 
     try runTest(for: .zero)
@@ -257,6 +263,12 @@ struct IntegerParsingTests {
             try T(parsing: &$0, endianness: .little, byteCount: paddedSize)
           }
         }
+      }
+      
+      do {
+        let lebEncoded = [UInt8](encodingLEB128: number)
+        let parsed = try lebEncoded.withParserSpan { try T(parsingLEB128: &$0) }
+        #expect(parsed == number)
       }
     }
 
@@ -351,6 +363,12 @@ struct IntegerParsingTests {
             try T(parsing: &$0, endianness: .little, byteCount: size)
           }
         }
+      }
+      
+      do {
+        let lebEncoded = [UInt8](encodingLEB128: number)
+        let parsed = try lebEncoded.withParserSpan { try T(parsingLEB128: &$0) }
+        #expect(parsed == number)
       }
     }
 
