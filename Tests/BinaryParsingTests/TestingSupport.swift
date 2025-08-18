@@ -115,7 +115,7 @@ extension Array where Element == UInt8 {
       var v = value
       while true {
         var byte = UInt8(truncatingIfNeeded: v)
-        v >>= 6 // Keep the sign bit
+        v >>= 6  // Keep the sign bit
         let done = v == 0 || v == -1
         if done {
           byte &= 0x7F

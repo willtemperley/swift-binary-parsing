@@ -711,27 +711,17 @@ extension FixedWidthInteger where Self: BitwiseCopyable {
     var result: Self = 0
     var shift = 0
     var byte: UInt8 = 0
-    
     while true {
       byte = try UInt8(parsing: &input)
       let bits = Self(byte & 0x7F)
-      
       // Check for overflow before shifting
       if shift >= Self.bitWidth {
         // Additional bytes must be zero (or sign extension for signed)
-        if Self.isSigned {
-          let expectedByte: UInt8 = (result < 0) ? 0xFF : 0x00
-          guard (byte & 0x7F) == (expectedByte & 0x7F) else {
-            throw ParsingError(
-              status: .invalidValue,
-              location: input.startPosition)
-          }
-        } else {
-          guard (byte & 0x7F) == 0 else {
-            throw ParsingError(
-              status: .invalidValue,
-              location: input.startPosition)
-          }
+        let expectedByte: UInt8 = (result < 0) ? 0xFF : 0x00
+        guard bits == expectedByte else {
+          throw ParsingError(
+            status: .invalidValue,
+            location: input.startPosition)
         }
       } else {
         // Check if this would overflow our target type
@@ -742,8 +732,7 @@ extension FixedWidthInteger where Self: BitwiseCopyable {
           let extraBits = bits & ~allowedMask
           if extraBits != 0 {
             let isValidSignExtension =
-            Self.isSigned && extraBits == (~allowedMask & 0x7F)
-            
+              Self.isSigned && extraBits == (~allowedMask & 0x7F)
             if !isValidSignExtension {
               throw ParsingError(
                 status: .invalidValue,
