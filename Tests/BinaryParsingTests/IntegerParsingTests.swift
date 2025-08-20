@@ -639,4 +639,20 @@ struct IntegerParsingTests {
     try fuzzIntegerCasting(
       UInt.self, loadingFrom: UInt64.self, using: &rng)
   }
+  
+  /// Some LEB128 encoders output padding bytes which are considered
+  /// valid if the number of bytes does not exceed `ceil(bitWidth / 7)`
+  @Test(arguments: [
+    ([0x80, 0x81, 0x80, 0x00], 0x80),
+    ([0xFF, 0x00],             0x7F),
+    ([0xFF, 0x80, 0x00],       0x7F),
+    ([0x80, 0x81, 0x00],       0x80),
+    ([0x80, 0x81, 0x80, 0x00], 0x80),
+    ([0xFE, 0xFF, 0x7F],      -0x02),
+  ])
+  func validPaddingLEB128(input: [Int], expected: Int) throws {
+    let lebEncoded = input.map(UInt8.init)
+    let result = try lebEncoded.withParserSpan { try Int(parsingLEB128: &$0) }
+    #expect(result == expected)
+  }
 }

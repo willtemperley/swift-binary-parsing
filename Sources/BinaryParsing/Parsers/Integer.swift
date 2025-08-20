@@ -701,10 +701,13 @@ extension FixedWidthInteger where Self: BitwiseCopyable {
   /// from the start of the given parser span.
   ///
   /// - Parameter input: The `ParserSpan` to parse from. If parsing succeeds,
-  ///   the start position of `input` is moved forward by `ceil(bitWidth / 7)` where bitWidth is
-  ///   the minimum number of bits required to encode this integer.
-  /// - Throws: A `ParsingError` if `input` overflows the max value of
-  ///   this integer type.
+  ///   the start position of `input` is moved forward by the number of bytes consumed. This will
+  ///   usually be `ceil(N / 7)` where N is the minimum number of bits required to encode
+  ///   this integer. In rare cases an encoder may produce valid but unnecessary padding bytes,
+  ///   in which case the number of bytes consumed can be up to `ceil(bitWidth / 7)` where
+  ///   bitWidth is the  full width of this type.
+  /// - Throws: A `ParsingError` if `input` overflows the max value of  this integer type,
+  ///   or if the maximum byte count for this type's size has been consumed.
   @inlinable
   @_lifetime(&input)
   public init(parsingLEB128 input: inout ParserSpan) throws(ParsingError) {
@@ -713,37 +716,56 @@ extension FixedWidthInteger where Self: BitwiseCopyable {
     var byte: UInt8 = 0
     while true {
       byte = try UInt8(parsing: &input)
-      let bits = Self(byte & 0x7F)
-      // Check for overflow before shifting
-      if shift >= Self.bitWidth {
-        // Additional bytes must be zero (or sign extension for signed)
-        let expectedByte: UInt8 = (result < 0) ? 0xFF : 0x00
-        guard bits == expectedByte else {
+      let lowBits = byte & 0x7F
+      let availableBits = Self.bitWidth - shift
+      let isFinalByte = (byte & 0x80) == 0
+      if availableBits <= 0 {
+        let maxBytes = (Self.bitWidth + 6) / 7
+        let byteCount = shift / 7 + 1
+        if byteCount > maxBytes {
           throw ParsingError(
             status: .invalidValue,
             location: input.startPosition)
         }
-      } else {
-        // Check if this would overflow our target type
-        let availableBits = Self.bitWidth - shift
-        if availableBits < 7 {
-          // Mask of bits that can safely fit
-          let allowedMask: Self = (1 << availableBits) - 1
-          let extraBits = bits & ~allowedMask
-          if extraBits != 0 {
-            let isValidSignExtension =
-              Self.isSigned && extraBits == (~allowedMask & 0x7F)
-            if !isValidSignExtension {
-              throw ParsingError(
-                status: .invalidValue,
-                location: input.startPosition)
-            }
+        // Allow padding bytes that do not affect the value
+        let expectedBits: UInt8 = (result < 0) ? 0x7F : 0x00
+        guard lowBits == expectedBits else {
+          throw ParsingError(
+            status: .invalidValue,
+            location: input.startPosition)
+        }
+      } else if availableBits < 7 {
+        let allowedMask: UInt8 = (1 &<< availableBits) &- 1
+        let extraBits: UInt8 = lowBits & ~allowedMask
+        if Self.isSigned {
+          let signPadding: UInt8 = (~allowedMask) & 0x7F
+          guard extraBits == signPadding || extraBits == 0 else {
+            throw ParsingError(status: .invalidValue, location: input.startPosition)
+          }
+        } else {
+          guard extraBits == 0 else {
+            throw ParsingError(
+              status: .invalidValue,
+              location: input.startPosition)
           }
         }
-        result |= bits << shift
+        let part = Self(lowBits & allowedMask) << shift
+        result |= part
+        if Self.isSigned && isFinalByte {
+          let finalByteNegative = (byte & 0x40) != 0
+          let resultNegative = result & (1 << (Self.bitWidth - 1)) != 0
+          if finalByteNegative != resultNegative {
+            // The value's sign has flipped - it has wrapped around.
+            throw ParsingError(
+              status: .invalidValue,
+              location: input.startPosition)
+          }
+        }
+      } else {
+        result |= Self(lowBits) &<< shift
       }
       shift += 7
-      if (byte & 0x80) == 0 { break }
+      if isFinalByte { break }
     }
     if Self.isSigned {
       // Sign-extend if needed
