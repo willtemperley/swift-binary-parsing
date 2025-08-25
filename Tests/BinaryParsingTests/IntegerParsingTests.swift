@@ -640,8 +640,8 @@ struct IntegerParsingTests {
       UInt.self, loadingFrom: UInt64.self, using: &rng)
   }
   
-  /// Some LEB128 encoders output padding bytes which are considered
-  /// valid if the number of bytes does not exceed `ceil(bitWidth / 7)`
+  // Some LEB128 encoders output padding bytes which are considered
+  // valid if the number of bytes does not exceed `ceil(bitWidth / 7)`.
   @Test(arguments: [
     ([0x80, 0x81, 0x80, 0x00], 0x80),
     ([0xFF, 0x00],             0x7F),
